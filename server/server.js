@@ -1,16 +1,17 @@
 require('dotenv').config();
-const fs           = require('fs');
-const path         = require('path');
-const express      = require('express');
-const cors         = require('cors');
-const http         = require('http');
-const { Server }   = require('socket.io');
-const mongoose     = require('mongoose');
+const fs = require('fs');
+const path = require('path');
+const express = require('express');
+const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
+const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
-const helmet       = require('helmet');
-const rateLimit    = require('express-rate-limit');
-const ioStore      = require('./socket/io');
-const { auth }     = require('./lib/auth-better');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const ioStore = require('./socket/io');
+const { auth } = require('./lib/auth');
+const { authMiddleware } = require('./lib/middleware');
 
 // ── Uploads dir ─────────────────────────
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -18,57 +19,57 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
 const isProd = process.env.NODE_ENV === 'production';
 
-// ── CORS (COMPLETE FIX) ─────────────────────────
+// ── CORS Configuration ──────────────────────
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
+  'http://localhost:3001',
   process.env.FRONTEND_URL,
-  'https://bca-auction-production-1.up.railway.app',
 ].filter(Boolean);
+
+if (isProd) {
+  allowedOrigins.push(/\.railway\.app$/);
+}
 
 console.log('🌐 Allowed CORS origins:', allowedOrigins);
 
 const corsOptions = {
-  origin: function (origin, callback) {
+  origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin) || 
-        (isProd && origin.includes('.railway.app'))) {
+    const allowed = allowedOrigins.some(allowed => 
+      typeof allowed === 'string' ? allowed === origin : allowed.test(origin)
+    );
+    
+    if (allowed) {
+      callback(null, true);
+    } else if (isProd && origin.includes('.railway.app')) {
       callback(null, true);
     } else {
-      console.log('⚠️ Blocked origin:', origin);
+      console.log('⚠️ CORS blocked origin:', origin);
       callback(null, true);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
-  exposedHeaders: ['Set-Cookie'],
+  exposedHeaders: ['Set-Cookie', 'Authorization'],
   maxAge: 86400,
 };
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// ── Socket.io ───────────────────────────
+// ── Socket.io Configuration ──────────────────
 const io = new Server(server, {
   cors: {
-    origin: function(origin, callback) {
-      if (!origin || 
-          allowedOrigins.includes(origin) || 
-          (isProd && origin.includes('.railway.app'))) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
   },
   transports: ['websocket', 'polling'],
   allowEIO3: true,
@@ -79,7 +80,7 @@ const io = new Server(server, {
 ioStore.setIO(io);
 app.set('io', io);
 
-// ── Security ────────────────────────────
+// ── Security ────────────────────────────────
 app.set('trust proxy', 1);
 
 if (isProd) {
@@ -93,12 +94,12 @@ if (isProd) {
 
 app.disable('x-powered-by');
 
-// ── Body parsing ────────────────────────
+// ── Body Parsing ────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// ── Rate limits ─────────────────────────
+// ── Rate Limiting ───────────────────────────
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isProd ? 500 : 2000,
@@ -109,7 +110,7 @@ const limiter = rateLimit({
 
 app.use('/api', limiter);
 
-// ── Static files ────────────────────────
+// ── Static Files ────────────────────────────
 app.use('/uploads', express.static(uploadsDir, {
   maxAge: '1d',
   setHeaders: (res) => {
@@ -118,27 +119,26 @@ app.use('/uploads', express.static(uploadsDir, {
   }
 }));
 
-// ── Better Auth Routes ──────────────────
-app.use('/api/auth/*', (req, res, next) => {
-  auth.handler(req, res, next).catch(err => {
-    console.error('❌ Better Auth Error:', err);
-    res.status(500).json({ error: 'Authentication failed' });
-  });
-});
+// ── Auth Middleware ─────────────────────────
+app.use(authMiddleware);
 
-// ── API Routes ──────────────────────────
+// ── Better Auth Routes ──────────────────────
+app.use('/api/auth/*', auth.handler);
+
+// ── API Routes ──────────────────────────────
 app.use('/api/auctions', require('./routes/auctions'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/payment', require('./routes/payment'));
 
-// ── Health check ────────────────────────
+// ── Health Checks ───────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    ok: true, 
+  res.json({
+    ok: true,
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV,
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    auth: 'Better Auth with Google OAuth'
+    auth: 'Better Auth v1.2.7',
+    adminEmail: process.env.ADMIN_EMAIL || 'not-set',
   });
 });
 
@@ -147,10 +147,11 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'BCA Auction Backend API',
     status: 'running',
-    auth: 'Better Auth with Google OAuth',
+    auth: 'Better Auth (Google OAuth + Email/Password)',
+    version: '2.0.0',
     endpoints: {
       health: '/api/health',
       auth: '/api/auth/*',
@@ -160,26 +161,26 @@ app.get('/', (req, res) => {
   });
 });
 
-// ── 404 handler ─────────────────────────
+// ── 404 Handler ─────────────────────────────
 app.use((req, res) => {
   console.log('❌ 404:', req.method, req.url);
-  res.status(404).json({ 
+  res.status(404).json({
     error: `${req.method} ${req.url} not found`,
-    availableRoutes: ['/api/auth', '/api/auctions', '/api/admin']
+    availableRoutes: ['/api/auth', '/api/auctions', '/api/admin', '/api/health']
   });
 });
 
-// ── Error handler ───────────────────────
+// ── Error Handler ───────────────────────────
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err.message);
   console.error(err.stack);
-  res.status(err.status || 500).json({ 
+  res.status(err.status || 500).json({
     error: isProd ? 'Server error' : err.message,
     ...(isProd ? {} : { stack: err.stack })
   });
 });
 
-// ── MongoDB + Start ─────────────────────
+// ── MongoDB Connection & Start ──────────────
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
@@ -193,16 +194,19 @@ mongoose.connect(MONGODB_URI, {
 })
 .then(async () => {
   console.log('✅ MongoDB connected');
-  console.log('✅ Better Auth initialized with Google OAuth');
+  console.log('✅ Better Auth initialized');
+  console.log('👨‍💼 Admin Email:', process.env.ADMIN_EMAIL || 'not-set');
+  console.log('📧 Email/Password auth: ✅');
+  console.log('🔐 Google OAuth:', process.env.GOOGLE_CLIENT_ID ? '✅' : '❌');
+  console.log('📸 Cloudinary:', process.env.CLOUDINARY_URL ? '✅' : '❌');
 
   require('./socket/auctionEngine')(io);
-  
+
   const PORT = process.env.PORT || 5000;
-  server.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, process.env.HOSTNAME || '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV}`);
-    console.log(`🔐 Auth: Better Auth with Google OAuth`);
-    console.log(`📚 Google Client ID: ${process.env.GOOGLE_CLIENT_ID ? '✅ Configured' : '❌ Not set'}`);
+    console.log(`🔐 Authentication: Better Auth v1.2.7`);
   });
 })
 .catch(err => {
@@ -210,7 +214,7 @@ mongoose.connect(MONGODB_URI, {
   process.exit(1);
 });
 
-// ── Graceful shutdown ───────────────────
+// ── Graceful Shutdown ───────────────────────
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, closing server...');
   server.close(() => {

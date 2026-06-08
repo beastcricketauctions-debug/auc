@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
+
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import axios from 'axios';
 import { FiMail, FiLock, FiUser, FiArrowLeft } from 'react-icons/fi';
+import authClient from '@/lib/auth-client';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -14,7 +15,15 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  useEffect(() => {
+    const checkAuth = async () => {
+      const session = await authClient.getSession();
+      if (session?.user) {
+        router.push('/auctions');
+      }
+    };
+    checkAuth();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,16 +42,15 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const response = await axios.post(`${API_URL}/api/auth/sign-up/email`, {
+      const data = await authClient.signUp({
         name,
         email: email.trim().toLowerCase(),
         password,
-      }, {
-        withCredentials: true,
       });
 
-      if (response.data.user) {
-        router.push('/login?registered=true');
+      if (data.user) {
+        localStorage.setItem('user', JSON.stringify(data.user));
+        router.push(data.user.isAdmin || data.user.role === 'admin' ? '/admin' : '/auctions');
       }
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Registration failed');

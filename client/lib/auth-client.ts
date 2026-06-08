@@ -1,49 +1,66 @@
-/**
- * Better Auth — Client Configuration
- * ====================================
- * Install: npm install better-auth
- * Docs:    https://better-auth.com/docs/react
- *
- * Usage in components:
- *   import { useSession, signIn, signOut } from '@/lib/auth-client';
- *
- *   const { data: session, isPending } = useSession();
- *   await signIn.email({ email, password, callbackURL: '/dashboard/organizer' });
- *   await signIn.social({ provider: 'google' });
- *   await signOut({ fetchOptions: { onSuccess: () => router.push('/login') } });
- */
+import axios from 'axios';
 
-let _client: any = null;
-
-function getClient() {
-  if (_client) return _client;
-  try {
-    const { createAuthClient } = require('better-auth/react');
-    _client = createAuthClient({
-      baseURL: process.env.NEXT_PUBLIC_BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL || '',
-    });
-    return _client;
-  } catch {
-    // Stub until better-auth is installed
-    const stub = {
-      useSession: () => ({ data: null, isPending: false, error: null }),
-      signIn:     { email: async () => {}, social: async () => {} },
-      signOut:    async () => {},
-      signUp:     { email: async () => {} },
-    };
-    return stub;
-  }
-}
-
-export const {
-  useSession,
-  signIn,
-  signOut,
-  signUp,
-} = new Proxy({} as any, {
-  get(_: any, key: string) {
-    return getClient()[key];
-  },
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const api = axios.create({
+  baseURL: API_URL,
+  withCredentials: true,
 });
 
-export default getClient;
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  image?: string;
+  role?: string;
+  isAdmin?: boolean;
+}
+
+export interface AuthResponse {
+  user: User;
+  session: any;
+}
+
+export const authClient = {
+  // Email/Password Sign Up
+  signUp: async (data: { name: string; email: string; password: string }) => {
+    const response = await api.post<AuthResponse>('/api/auth/sign-up/email', data);
+    return response.data;
+  },
+
+  // Email/Password Sign In
+  signIn: async (data: { email: string; password: string }) => {
+    const response = await api.post<AuthResponse>('/api/auth/sign-in/email', data);
+    return response.data;
+  },
+
+  // Google OAuth Sign In
+  signInWithGoogle: async () => {
+    const redirectUrl = `${API_URL}/api/auth/sign-in/google?redirectURL=${encodeURIComponent(
+      window.location.origin + '/auctions'
+    )}`;
+    window.location.href = redirectUrl;
+  },
+
+  // Get Current Session
+  getSession: async () => {
+    try {
+      const response = await api.get('/api/auth/session');
+      return response.data;
+    } catch (error) {
+      return null;
+    }
+  },
+
+  // Sign Out
+  signOut: async () => {
+    try {
+      await api.post('/api/auth/sign-out');
+      localStorage.removeItem('user');
+      return true;
+    } catch (error) {
+      return false;
+    }
+  },
+};
+
+export default authClient;
