@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser');
 const helmet       = require('helmet');
 const rateLimit    = require('express-rate-limit');
 const ioStore      = require('./socket/io');
+const { auth }     = require('./lib/auth-better');
 
 // ── Uploads dir ─────────────────────────
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -21,35 +22,33 @@ const app    = express();
 const server = http.createServer(app);
 const isProd = process.env.NODE_ENV === 'production';
 
-// ── CORS (COMPLETE FIX) ─────────────────
+// ── CORS (COMPLETE FIX) ─────────────────────────
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   process.env.FRONTEND_URL,
-  'https://bca-auction-production-1.up.railway.app', // ✅ Add your Railway frontend URL
+  'https://bca-auction-production-1.up.railway.app',
 ].filter(Boolean);
 
 console.log('🌐 Allowed CORS origins:', allowedOrigins);
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    // Allow if origin is in whitelist OR in production allow all Railway domains
     if (allowedOrigins.includes(origin) || 
         (isProd && origin.includes('.railway.app'))) {
       callback(null, true);
     } else {
       console.log('⚠️ Blocked origin:', origin);
-      callback(null, true); // ✅ Still allow but log it
+      callback(null, true);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
   exposedHeaders: ['Set-Cookie'],
-  maxAge: 86400, // 24 hours
+  maxAge: 86400,
 };
 
 app.use(cors(corsOptions));
@@ -64,7 +63,7 @@ const io = new Server(server, {
           (isProd && origin.includes('.railway.app'))) {
         callback(null, true);
       } else {
-        callback(null, true); // Allow but log
+        callback(null, true);
       }
     },
     methods: ['GET', 'POST'],
@@ -78,7 +77,7 @@ const io = new Server(server, {
 });
 
 ioStore.setIO(io);
-app.set('io', io); // Make io accessible in route handlers via req.app.get('io')
+app.set('io', io);
 
 // ── Security ────────────────────────────
 app.set('trust proxy', 1);
@@ -119,8 +118,15 @@ app.use('/uploads', express.static(uploadsDir, {
   }
 }));
 
-// ── Routes ──────────────────────────────
-app.use('/api/auth', require('./routes/auth'));
+// ── Better Auth Routes ──────────────────
+app.use('/api/auth/*', (req, res, next) => {
+  auth.handler(req, res, next).catch(err => {
+    console.error('❌ Better Auth Error:', err);
+    res.status(500).json({ error: 'Authentication failed' });
+  });
+});
+
+// ── API Routes ──────────────────────────
 app.use('/api/auctions', require('./routes/auctions'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/payment', require('./routes/payment'));
@@ -131,7 +137,8 @@ app.get('/api/health', (req, res) => {
     ok: true, 
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV,
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    auth: 'Better Auth with Google OAuth'
   });
 });
 
@@ -143,6 +150,7 @@ app.get('/', (req, res) => {
   res.json({ 
     message: 'BCA Auction Backend API',
     status: 'running',
+    auth: 'Better Auth with Google OAuth',
     endpoints: {
       health: '/api/health',
       auth: '/api/auth/*',
@@ -185,27 +193,16 @@ mongoose.connect(MONGODB_URI, {
 })
 .then(async () => {
   console.log('✅ MongoDB connected');
+  console.log('✅ Better Auth initialized with Google OAuth');
 
-  // Verify SMTP connection on startup (non-fatal - don't fail deployment)
-  try {
-    const { verifyTransporter, isEmailConfigured } = require('./utils/email');
-    if (isEmailConfigured()) {
-      await verifyTransporter();
-    } else {
-      console.warn('⚠️  Email not configured - email features will be disabled');
-    }
-  } catch (e) {
-    console.warn('⚠️  Email transporter check failed (non-fatal):', e.message);
-  }
-
-  // Initialize socket auction engine
   require('./socket/auctionEngine')(io);
   
   const PORT = process.env.PORT || 5000;
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV}`);
-    console.log(`🔗 Allowed origins:`, allowedOrigins);
+    console.log(`🔐 Auth: Better Auth with Google OAuth`);
+    console.log(`📚 Google Client ID: ${process.env.GOOGLE_CLIENT_ID ? '✅ Configured' : '❌ Not set'}`);
   });
 })
 .catch(err => {
