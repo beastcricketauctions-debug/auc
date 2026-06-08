@@ -1,221 +1,166 @@
 'use client';
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import api from '@/lib/api';
-import GoldParticles from '@/components/beast/GoldParticles';
-import FireSparkles from '@/components/beast/FireSparkles';
-import BeastLogo from '@/components/beast/BeastLogo';
-import BackButton from '@/components/shared/BackButton';
-
-type F = { name: string; email: string; password: string; confirm: string };
+import axios from 'axios';
+import { FiMail, FiLock, FiUser, FiArrowLeft } from 'react-icons/fi';
 
 export default function RegisterPage() {
-  const [loading,         setLoading]         = useState(false);
-  const [error,           setError]           = useState('');
-  const [success,         setSuccess]         = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState('');
-  const [resendLoading,   setResendLoading]   = useState(false);
-  const [resendMsg,       setResendMsg]       = useState('');
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<F>();
-  const pwd = watch('password', '');
+  const router = useRouter();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const onSubmit = async (d: F) => {
-    if (d.password !== d.confirm) { setError('Passwords do not match'); return; }
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-    setLoading(true);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError('');
 
+    if (password !== confirm) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      await api.post('/auth/register', {
-        name:     d.name,
-        email:    d.email.trim().toLowerCase(),
-        password: d.password,
+      const response = await axios.post(`${API_URL}/api/auth/sign-up/email`, {
+        name,
+        email: email.trim().toLowerCase(),
+        password,
+      }, {
+        withCredentials: true,
       });
 
-      setRegisteredEmail(d.email.trim().toLowerCase());
-      setSuccess(true);
-
-    } catch (e: any) {
-      setError(e.response?.data?.error || 'Registration failed. Please try again.');
+      if (response.data.user) {
+        router.push('/login?registered=true');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Registration failed');
+      console.error('Registration error:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleResend = async () => {
-    if (!registeredEmail) return;
-    setResendLoading(true);
-    setResendMsg('');
-    try {
-      await api.post('/auth/resend-verification', { email: registeredEmail });
-      setResendMsg('Verification email resent! Check your inbox.');
-    } catch (e: any) {
-      setResendMsg(e.response?.data?.error || 'Failed to resend. Please try again.');
-    } finally {
-      setResendLoading(false);
-    }
-  };
-
-  if (success) {
-    return (
-      <div className="relative min-h-screen flex items-center justify-center bg-background overflow-hidden">
-        <div className="absolute inset-0 bg-cover bg-center opacity-15"
-          style={{ backgroundImage: "url('/stadium-bg.jpg')" }}/>
-        <div className="absolute inset-0"
-          style={{ background: 'radial-gradient(ellipse at center,transparent 20%,hsl(222 47% 6% / 0.95) 70%)' }}/>
-        <GoldParticles/><FireSparkles/>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="relative z-10 text-center p-10 max-w-md mx-4 bg-glass-premium rounded-xl gold-edge"
-        >
-          <div className="text-6xl mb-4">📧</div>
-          <h2 className="font-heading text-3xl uppercase tracking-wider text-foreground mb-3">
-            Check Your <span className="text-gradient-gold">Email</span>
-          </h2>
-          <p className="font-display text-muted-foreground mb-2">
-            We sent a verification link to:
-          </p>
-          <p className="font-heading text-primary text-sm mb-4 break-all">{registeredEmail}</p>
-          <p className="font-display text-muted-foreground text-sm mb-6">
-            Click the link in your email to verify your account before logging in.
-            The link expires in <strong className="text-foreground">24 hours</strong>.
-          </p>
-
-          <div className="space-y-3">
-            <button
-              onClick={handleResend}
-              disabled={resendLoading}
-              className="w-full py-3 rounded-lg border-gold-subtle font-heading text-xs uppercase tracking-wider text-muted-foreground hover:text-primary hover:border-gold transition-all disabled:opacity-50"
-              style={{ background: 'hsla(222,30%,16%,0.5)' }}
-            >
-              {resendLoading ? 'Sending...' : '🔄 Resend Verification Email'}
-            </button>
-
-            {resendMsg && (
-              <p className={`text-xs font-display ${resendMsg.includes('resent') ? 'text-green-400' : 'text-destructive'}`}>
-                {resendMsg}
-              </p>
-            )}
-
-            <Link
-              href="/login"
-              className="block w-full py-3 rounded-lg bg-primary text-primary-foreground font-heading uppercase tracking-wider text-sm text-center glow-gold hover:scale-[1.02] transition-all"
-            >
-              Go to Login
-            </Link>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-background overflow-hidden py-10">
-      <div className="absolute inset-0 bg-cover bg-center opacity-15"
-        style={{ backgroundImage: "url('/stadium-bg.jpg')" }}/>
-      <div className="absolute inset-0"
-        style={{ background: 'radial-gradient(ellipse at center,transparent 20%,hsl(222 47% 6% / 0.95) 70%)' }}/>
-      {[{ left: '10%', rotate: '-12deg' }, { left: '90%', rotate: '12deg' }].map((b, i) => (
-        <div key={i} className="absolute top-0 pointer-events-none"
-          style={{ left: b.left, width: 120, height: '60vh',
-            background: 'linear-gradient(180deg,hsla(45,100%,90%,0.8) 0%,transparent 100%)',
-            transform: `rotate(${b.rotate})`, transformOrigin: 'top center',
-            filter: 'blur(25px)', opacity: 0.06 }}/>
-      ))}
-      <GoldParticles/><FireSparkles/>
-
-      <div className="relative z-10 w-full max-w-md mx-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
         <div className="mb-4">
-          <BackButton href="/login" label="Back to Login" />
+          <Link href="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-yellow-400 transition-colors text-sm font-medium group">
+            <span className="w-8 h-8 rounded-lg bg-gray-800/60 border border-gray-700 flex items-center justify-center group-hover:border-yellow-500/40 group-hover:bg-yellow-500/5 transition-all">
+              <FiArrowLeft className="w-4 h-4" />
+            </span>
+            Back to Home
+          </Link>
         </div>
-        <div className="flex justify-center mb-5 opacity-0 animate-slide-up" style={{ animationDelay: '0.1s' }}>
-          <BeastLogo size={90} glow float3d href="/"/>
+
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 mb-4">
+            <span className="text-2xl font-bold text-gray-900">🏏</span>
+          </div>
+          <h1 className="text-3xl font-bold text-white mb-2">Create Account</h1>
+          <p className="text-gray-400">Join Beast Cricket Auction</p>
         </div>
 
-        <div className="bg-glass-premium rounded-xl p-7 gold-edge opacity-0 animate-slide-up" style={{ animationDelay: '0.2s' }}>
-          <h2 className="font-heading text-2xl uppercase tracking-wider text-center mb-1 text-foreground">Create Account</h2>
-          <p className="text-center text-muted-foreground text-sm mb-5 font-display">Join Beast Cricket Auction</p>
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700 p-8 shadow-2xl">
+          {error && (
+            <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/50 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-[10px] font-heading uppercase tracking-wider text-muted-foreground mb-1.5">
-                Full Name *
-              </label>
-              <input
-                {...register('name', { required: 'Name is required' })}
-                placeholder="Your full name"
-                className="input-beast"
-              />
-              {errors.name && <p className="text-destructive text-xs mt-1">{errors.name.message}</p>}
+              <label className="block text-sm font-medium text-gray-300 mb-2">Full Name</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FiUser className="text-gray-400" size={20} />
+                </div>
+                <input
+                  type="text"
+                  required
+                  placeholder="Your full name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-gray-800/50 border border-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500 transition-all"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-[10px] font-heading uppercase tracking-wider text-muted-foreground mb-1.5">
-                Email Address *
-              </label>
-              <input
-                {...register('email', {
-                  required: 'Email is required',
-                  pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Enter a valid email' }
-                })}
-                type="email"
-                placeholder="you@gmail.com"
-                className="input-beast"
-              />
-              {errors.email && <p className="text-destructive text-xs mt-1">{errors.email.message}</p>}
+              <label className="block text-sm font-medium text-gray-300 mb-2">Email Address</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FiMail className="text-gray-400" size={20} />
+                </div>
+                <input
+                  type="email"
+                  required
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-gray-800/50 border border-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500 transition-all"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-[10px] font-heading uppercase tracking-wider text-muted-foreground mb-1.5">
-                Password *
-              </label>
-              <input
-                {...register('password', { required: 'Password is required', minLength: { value: 6, message: 'Min 6 characters' } })}
-                type="password"
-                placeholder="Min 6 characters"
-                className="input-beast"
-              />
-              {errors.password && <p className="text-destructive text-xs mt-1">{errors.password.message}</p>}
+              <label className="block text-sm font-medium text-gray-300 mb-2">Password</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FiLock className="text-gray-400" size={20} />
+                </div>
+                <input
+                  type="password"
+                  required
+                  placeholder="At least 6 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-gray-800/50 border border-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500 transition-all"
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-[10px] font-heading uppercase tracking-wider text-muted-foreground mb-1.5">
-                Confirm Password *
-              </label>
-              <input
-                {...register('confirm', {
-                  required: 'Please confirm your password',
-                  validate: v => v === pwd || 'Passwords do not match'
-                })}
-                type="password"
-                placeholder="Repeat password"
-                className="input-beast"
-              />
-              {errors.confirm && <p className="text-destructive text-xs mt-1">{errors.confirm.message}</p>}
+              <label className="block text-sm font-medium text-gray-300 mb-2">Confirm Password</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FiLock className="text-gray-400" size={20} />
+                </div>
+                <input
+                  type="password"
+                  required
+                  placeholder="Repeat password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-gray-800/50 border border-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500 transition-all"
+                />
+              </div>
             </div>
-
-            {error && (
-              <p className="text-destructive text-xs font-heading bg-destructive/10 rounded-lg px-3 py-2">
-                {error}
-              </p>
-            )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 rounded-lg bg-primary text-primary-foreground font-heading uppercase tracking-wider text-sm glow-gold hover:scale-[1.02] transition-all disabled:opacity-50"
+              className="w-full py-3 px-4 rounded-lg bg-gradient-to-r from-yellow-400 to-yellow-600 text-gray-900 font-semibold hover:from-yellow-500 hover:to-yellow-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Creating Account...' : 'Create Account'}
             </button>
           </form>
 
-          <div className="mt-5 text-center">
-            <p className="font-display text-muted-foreground text-sm">
+          <div className="mt-6 text-center">
+            <p className="text-gray-400 text-sm">
               Already have an account?{' '}
-              <Link href="/login" className="text-primary hover:text-primary/80 font-heading transition-colors">
+              <Link href="/login" className="text-yellow-400 hover:text-yellow-300 font-medium">
                 Login
               </Link>
             </p>
