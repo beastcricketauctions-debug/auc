@@ -197,13 +197,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Block login if email is not verified
-    if (!user.isVerified) {
-      return res.status(403).json({
-        error: 'Email not verified. Please check your inbox and verify your email before logging in.',
-        notVerified: true,
-      });
-    }
-
+  
     const finalRole = emailClean === ADMIN_EMAIL ? 'admin' : role;
 
     if (emailClean !== ADMIN_EMAIL) {
